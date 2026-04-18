@@ -1,0 +1,4 @@
+dataset,n_attempts,n_students,grade_mean,grade_std,grade_p25,grade_median,grade_p75,pct_grade_ge_6,pct_grade_ge_8,time_median_min,time_p75_min,time_mean_min,pct_time_over_60min
+Quiz 1,13911,6656,3.791,2.634,2.0,4.0,6.0,29.16,13.13,5.65,10.658,455.714,3.69
+Quiz 2,10430,6656,4.763,2.713,2.0,4.0,6.0,43.55,21.7,6.625,14.45,635.88,5.57
+Quiz 3,8066,6635,6.262,2.394,4.0,6.0,8.0,72.29,38.61,6.083,12.583,532.603,4.24

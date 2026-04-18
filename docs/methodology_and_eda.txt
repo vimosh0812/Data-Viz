@@ -1,0 +1,311 @@
+================================================================================
+DETAILED METHODOLOGY (REPORT-READY)
+================================================================================
+
+This document describes the analytical approach used in this repository and
+expands specifically on the exploratory data analysis (EDA) phase. You may
+adapt headings and numbering to match your course template.
+
+
+--------------------------------------------------------------------------------
+1. OVERALL APPROACH
+--------------------------------------------------------------------------------
+
+The project follows a data-driven, hypothesis-led workflow aligned with the
+assignment brief (docs/description.pdf):
+
+  (A) Ingest and clean the three quiz exports into a consistent analysis sample.
+  (B) Explore that sample quantitatively and visually before formal hypothesis
+      plots, to understand scale, skew, cohort overlap, and data limits.
+  (C) For each hypothesis (Task 1 and Task 2), design visualisations whose
+      marks and channels are justified in the report.
+  (D) Where appropriate, add statistical summaries or tests to support (not
+      replace) visual reading.
+  (E) Integrate EDA context, plots, and statistics into accept/reject/partial
+      conclusions with explicit caveats (e.g. missing per-question timings).
+
+
+--------------------------------------------------------------------------------
+2. DATA SOURCES AND PREPROCESSING
+--------------------------------------------------------------------------------
+
+Data sources
+  Three CSV files under data/quiz1/, data/quiz2/, and data/quiz3/, each
+  describing quiz attempts: student code, attempt state, start time, time
+  taken, total grade out of 10, and marks for five questions (two points each).
+
+Implementation
+  Preprocessing is implemented in Python (src/data_io.py) and reused by EDA
+  and all hypothesis modules.
+
+Steps applied to build the analysis-ready tables:
+
+  1. Filter to rows where State == "Finished", excluding in-progress attempts
+     that lack completed grades or durations.
+
+  2. Parse Grade/10.00 to a numeric column "grade".
+
+  3. Parse "Time taken" text into seconds using a regex-based routine that
+     supports minutes, seconds, hours, and multi-day durations (e.g. attempts
+     spanning days). Convert to "time_min" for interpretation.
+
+  4. Coerce per-question columns (Q. 1 /2.00, …) to numeric for item-level work.
+
+  5. Rename Student Code to student_id.
+
+  6. Parse Started on to a datetime (started_on), collapse repeated whitespace,
+     use day-first parsing with pandas mixed-format handling where needed.
+
+  7. Sort by student_id and started_on; assign attempt_no as the cumulative
+     attempt index per student (1 = first finished attempt in that quiz file).
+
+  8. Drop rows where grade or time_sec is missing after coercion, so every
+     downstream row has both a valid score and duration.
+
+The result is three parallel DataFrames (Quiz 1–3) plus an optional stacked
+frame, each row representing one analysable attempt.
+
+
+--------------------------------------------------------------------------------
+3. EXPLORATORY DATA ANALYSIS (EDA) — ROLE IN THE METHODOLOGY
+--------------------------------------------------------------------------------
+
+Purpose of EDA in this project
+
+  EDA is not treated as decoration; it is used to:
+    • Document how many raw rows exist and how many enter the analysis sample.
+    • Quantify skew and heavy tails (especially time taken) that motivate
+      capping or binning choices in later hypothesis figures.
+    • Show whether the same student population appears across quizzes, so
+      cross-quiz comparisons are interpreted fairly.
+    • Measure re-attempt behaviour (how often students retake, how grades move
+      from first to last attempt), which grounds hypotheses about improvement,
+      volatility, and number of attempts.
+    • Map item-level difficulty (mean and normalised performance per question)
+      before formal H2-style plots.
+    • Relate grade and time at a high density (hexbin) as a precursor to H1/H5.
+
+Where EDA is implemented and stored
+
+  • Code: src/eda.py (all tables and figure builders; orchestrated by
+    run_all_eda_plots).
+  • Notebook: notebooks/00_EDA_three_quizzes.ipynb (runs the full pipeline
+    with output directory outputs/eda/).
+  • Command line: python -m src eda (writes to <output-dir>/eda/, default
+    outputs/eda/).
+  • Index of files: outputs/eda/README_EDA_FILES.txt (generated each run).
+
+
+--------------------------------------------------------------------------------
+4. HYPOTHESIS TESTING AND STATISTICAL SUPPORT
+--------------------------------------------------------------------------------
+
+After EDA, Task 1 and Task 2 hypotheses are evaluated using dedicated modules
+(src/hypotheses_task1.py, src/hypotheses_task2.py) and/or notebooks under
+notebooks/task1/.
+
+Statistical tools used where they add value include:
+  • Spearman rank correlation (monotonic relationships, robust to outliers).
+  • Mann–Whitney U tests (two-group comparisons without normality assumptions).
+  • Wilcoxon signed-rank tests (paired attempt grades).
+  • LOWESS smoothing (statsmodels) to show nonlinear trends on scatter-based
+    hypotheses.
+
+Not every hypothesis uses a formal test; some rely on carefully chosen visuals
+with limitations stated explicitly (for example, per-question response times
+are not in the CSV, so time-based claims use total quiz time or proxies).
+
+
+--------------------------------------------------------------------------------
+5. VISUALISATION PRACTICE
+--------------------------------------------------------------------------------
+
+Figures use Matplotlib and Seaborn with a fixed accessible palette
+(src/viz_style.py). Small multiples (one panel per quiz) are used repeatedly so
+readers can compare behaviour across Quiz 1–3 while holding encodings constant.
+Titles and captions in EDA figures state which later hypotheses the view
+informs (H1–H5, H8, H9, etc.) to connect exploration to analysis.
+
+
+--------------------------------------------------------------------------------
+6. REPRODUCIBILITY AND TOOLS
+--------------------------------------------------------------------------------
+
+  • Language: Python 3.10+
+  • Dependencies: requirements.txt (pandas, NumPy, Matplotlib, Seaborn,
+    SciPy, statsmodels, Jupyter, etc.)
+  • Regenerate EDA: notebooks/00_EDA_three_quizzes.ipynb or: python -m src eda
+  • Regenerate hypothesis figures: python -m src task1 | task2 | h1 …
+
+
+================================================================================
+PART II — WHAT WAS DONE IN THE EDA (DETAILED ACCOUNT)
+================================================================================
+
+This section lists every EDA output produced under outputs/eda/, what was
+computed, and why it matters for the project goals.
+
+
+--------------------------------------------------------------------------------
+A. TABULAR OUTPUTS (CSV)
+--------------------------------------------------------------------------------
+
+1) eda_data_quality.csv
+   For each quiz file (1–3), computed from the RAW CSV before the hypothesis
+   pipeline filters:
+     • rows_total — all lines in the file.
+     • finished — rows with State == Finished.
+     • finished_missing_grade — finished rows where Grade/10.00 is not numeric.
+     • finished_unparseable_time — finished rows where duration string could
+       not be converted to seconds.
+     • rows_in_analysis_sample — finished rows with BOTH valid grade and
+       parseable time (matches the cleaned tables used everywhere else).
+
+   Use in the report: justifies the analysis sample and shows whether data loss
+   is negligible or needs discussion.
+
+2) eda_cross_quiz_students.csv
+   Uses cleaned DataFrames: builds sets of student_id per quiz and counts
+   overlaps (e.g. students appearing in all three files, or in pairs only).
+
+   Use in the report: supports statements about whether the same cohort sits
+   behind each quiz; in this dataset nearly all analysable students appear
+   across quizzes (quiz-only counts are often zero).
+
+3) eda_student_attempts.csv
+   Per quiz:
+     • students — distinct student_id count.
+     • pct_with_2plus_attempts — share of students whose max attempt_no ≥ 2.
+     • mean_attempts_per_student — average number of attempt rows per student.
+     • max_attempts_observed — largest number of attempts by one student.
+
+   Use in the report: quantifies retake culture per quiz (Quiz 1 has more
+   re-attempts than Quiz 3 in the current data), motivating H3, H7, H9.
+
+4) eda_first_to_last_delta.csv
+   For students with at least two attempts in a quiz: last grade minus first
+   grade; summarised by mean, median, and percentage with strictly positive
+   delta.
+
+   Use in the report: summarises typical improvement across retakes without
+   yet committing to a formal paired test (that appears in hypothesis code).
+
+5) eda_numeric_summary.csv
+   Per quiz, on cleaned ATTEMPT-level rows:
+     • n_attempts, n_students
+     • grade mean, std, 25th / 50th / 75th percentiles
+     • pct_grade_ge_6, pct_grade_ge_8 — coarse “strong score” rates
+     • time median, 75th percentile, mean (mean is sensitive to long tails)
+     • pct_time_over_60min — tail diagnostic for duration
+
+   Use in the report: compact numeric profile; explain that mean time can be
+   inflated by rare very long attempts while median reflects typical speed.
+
+
+--------------------------------------------------------------------------------
+B. FIGURES (PNG) — COMPUTATION AND RATIONALE
+--------------------------------------------------------------------------------
+
+1) eda_grade_histograms.png
+   Three panels (Quiz 1–3). Histogram of grade (0–10) with vertical lines at
+   mean and median per quiz.
+
+   Why: shows overall difficulty shift and skew (e.g. more mass at higher
+   grades in a later quiz). Informs discussion before H1–H5.
+
+2) eda_grade_ecdf_by_quiz.png
+   Empirical cumulative distribution of grades, one curve per quiz on the same
+   axes (step curves).
+
+   Why: a single view of whether one quiz stochastically dominates another
+   (curve to the upper-right implies higher grades at any quantile).
+
+3) eda_time_histograms.png
+   Single figure: side-by-side boxplots of time taken (minutes) for Quiz 1–3 on
+   the same axis scale. Values above the 99.5th percentile within each quiz are
+   dropped before plotting so a handful of multi-day attempts do not compress
+   the boxes. Outliers are hidden (showfliers=False) so the story is median and
+   IQR; text boxes annotate median and IQR per quiz.
+
+   Why: matches the report narrative “time comparison between quizzes” —
+   median time and spread differ across quizzes, suggesting different typical
+   duration or behaviour (length, difficulty, or when the quiz was taken).
+
+4) eda_time_boxplot_by_quiz.png
+   Same capped attempt-level data as (3), drawn as horizontal boxplots for an
+   alternative layout (e.g. slides or appendix).
+
+5) eda_attempts_per_student.png
+   Per quiz: bar chart of how many students have max attempts = 1, 2, 3, …
+
+   Why: shows retake frequency distribution; essential context for any
+   multi-attempt hypothesis.
+
+6) eda_first_to_last_grade_delta.png
+   Per quiz: histogram of (last grade − first grade) for students with ≥2
+   attempts; vertical line at zero.
+
+   Why: visual counterpart to eda_first_to_last_delta.csv; shows whether
+   improvements are symmetric or skewed.
+
+7) eda_question_mean_marks.png
+   Grouped bar chart: mean raw mark per question (0–2 scale), three series
+   (one per quiz).
+
+   Why: exploratory item difficulty comparison across quizzes (feeds H2).
+
+8) eda_question_difficulty_heatmap.png
+   Heatmap: rows = questions, columns = quizzes; cell value = mean achieved
+   mark divided by that question’s maximum (normalised to about 0–1).
+
+   Why: compact “which item is hard where” view for the report’s methodology
+   or results narrative.
+
+9) eda_grade_vs_time_hexbin.png
+   Per quiz: hexagonal binning of time_min vs grade; colour = count of
+   attempts in bin; time axis capped at 99.5th percentile per quiz.
+
+   Why: high-density view of the joint distribution before formal H1/H5
+   scatter/LOWESS or quintile work.
+
+10) eda_attempts_timeline.png
+    Three stacked time series: daily count of attempts (finished) using
+    started_on floored to day.
+
+    Why: shows activity windows and intensity over calendar time; supports
+    timing-related hypotheses (e.g. first starters vs grade).
+
+11) eda_best_grade_by_max_attempts.png
+    Per quiz: for students grouped by their maximum attempt count, bar chart
+    of mean BEST grade among students in that group; groups with fewer than
+    five students omitted for stability.
+
+    Why: exploratory view related to whether more attempts associate with higher
+    best scores (H9-style narrative).
+
+
+--------------------------------------------------------------------------------
+C. CONSOLE OUTPUT DURING EDA
+--------------------------------------------------------------------------------
+
+When run_all_eda_plots executes (notebook or CLI), the same tables printed above
+are also printed to the console in a fixed order so a log can be pasted into
+an appendix if required.
+
+
+--------------------------------------------------------------------------------
+D. HOW THIS EDA CONNECTS TO ASSIGNMENT HYPOTHESES (QUICK MAP)
+--------------------------------------------------------------------------------
+
+  H1 (time vs score)        ← eda_grade_vs_time_hexbin, time/grade summaries
+  H2 (item difficulty)      ← eda_question_mean_marks, eda_question_difficulty_heatmap
+  H3 (tier progression)     ← eda_student_attempts, eda_first_to_last_delta, histogram
+  H4 (difficulty/time/tier) ← item heatmap + time boxplots (total time only)
+  H5 (optimal time window)  ← time histograms, hexbin, tail percentages
+  H8 (timing vs grade)      ← eda_attempts_timeline + cohort timing awareness
+  H9 (attempts vs best)     ← eda_best_grade_by_max_attempts, student_attempts
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

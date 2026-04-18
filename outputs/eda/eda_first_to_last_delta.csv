@@ -1,0 +1,4 @@
+quiz,n_students_multi,mean_delta_last_minus_first,median_delta,pct_improved
+Quiz 1,4391,4.2095,4.0,95.65
+Quiz 2,2581,4.3681,4.0,96.82
+Quiz 3,1158,4.1727,4.0,93.35
