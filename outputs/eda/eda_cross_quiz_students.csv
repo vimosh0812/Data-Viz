@@ -1,8 +1,8 @@
 scope,count
-Students in Quiz 1 only (cleaned),0
-Students in Quiz 2 only (cleaned),0
-Students in Quiz 3 only (cleaned),0
-In all three quizzes,6635
-In Quiz 1 and 2,6656
-In Quiz 1 and 3,6635
-In Quiz 2 and 3,6635
+Quiz 1 only,0
+Quiz 2 only,0
+Quiz 3 only,0
+Q1 ∩ Q2,6656
+Q1 ∩ Q3,6635
+Q2 ∩ Q3,6635
+All three quizzes,6635
