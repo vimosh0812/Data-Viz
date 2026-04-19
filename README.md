@@ -1,157 +1,110 @@
-# CS3751 Data Visualization — Class Project
+# Quiz data — notebooks and outputs
 
-## About this project
+This package is a **self-contained** submission: raw quiz exports, three Jupyter notebooks (all logic inlined in the notebooks), and generated figures and tables. No extra source tree is required to reproduce the analysis.
 
-This is a **group** data visualization project for **CS3751**. You analyze Moodle-style exports of **three quizzes**: each row is one quiz attempt with timestamps, **time taken**, total **grade out of 10**, and **per-question marks**. The same student can appear **multiple times** (retakes).
+## What to submit
 
-The work is to explore hypotheses with **well-designed visualizations** (Task 1: five hypotheses given in the brief; Task 2: five hypotheses you define). For each figure you explain whether the evidence **supports or rejects** the hypothesis and **justify marks and channels** as required by the course.
+Include **only** these items (plus this file):
 
-**Authoritative brief:** `docs/description.pdf` (sections, grading, submission format).
+| Item | Notes |
+|------|--------|
+| **`README.md`** | This file (project overview and how to run the notebooks). |
+| **`data/`** | Moodle CSV exports for the three quizzes (see paths below). |
+| **`notebooks/`** | `EDA.ipynb`, `task01.ipynb`, `task02.ipynb` only. **Do not** include `notebooks/_exec_check/` (that folder is for local test runs only). |
+| **`outputs/`** | Saved figures and CSVs produced by the notebooks (`outputs/eda/` for EDA, plus PNGs in `outputs/` for hypothesis tasks). |
 
-**Data in this repo:** `data/quiz1/`, `data/quiz2/`, `data/quiz3/` — CSV files with attempt-level and question-level scores.
+Suggested layout:
 
----
+```text
+README.md
+data/
+  quiz1/…
+  quiz2/…
+  quiz3/…
+notebooks/
+  EDA.ipynb
+  task01.ipynb
+  task02.ipynb
+outputs/
+  eda/…
+  h1_*.png … h5_*.png
+  h6_*.png … h10_*.png
+```
 
 ## Prerequisites
 
-- **Python 3.10, 3.11, 3.12, or 3.13** (3.10+). Check with `python --version` or `python3 --version`.
-- **pip** (usually bundled with Python).
+Use Python **3.11+** with:
 
----
+- `numpy`, `pandas`, `matplotlib`, `seaborn`, `scipy`, `statsmodels`
+- `jupyter` and `ipykernel` (to open and run the `.ipynb` files)
 
-## Setup (multiple environments)
-
-Clone or copy the project folder, then open a terminal **in the repository root** (the directory that contains `requirements.txt`).
-
-### A. Virtual environment — macOS or Linux
+Install with pip, for example:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+pip install numpy pandas matplotlib seaborn scipy statsmodels jupyter ipykernel
 ```
 
-Deactivate later with `deactivate`.
+## Data paths
 
-### B. Virtual environment — Windows (Command Prompt or PowerShell)
+The notebooks expect these CSV paths **relative to the folder that contains `data`, `notebooks`, and `outputs`** (the “project root”). If you open a notebook from inside `notebooks/`, the first code cell still switches the working directory to that root so paths resolve correctly.
 
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-If `py` is not installed, try `python -m venv .venv` instead. In **cmd.exe**, activation is `.\.venv\Scripts\activate.bat`. If PowerShell blocks `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use **cmd.exe** with `activate.bat` above. Deactivate with `deactivate`.
-
-### C. Conda or Mamba (any OS)
-
-From the repo root, with your preferred Python version available:
-
-```bash
-conda create -n cs3751-viz python=3.12 -y
-conda activate cs3751-viz
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Using **mamba**, replace `conda` with `mamba` in the lines above.
-
-### Verify the install
-
-With the environment **activated**:
-
-```bash
-python -c "import pandas, matplotlib, seaborn, scipy, statsmodels; print('OK')"
-```
-
----
-
-## Task 1 — five notebooks (one hypothesis each)
-
-Use Jupyter from the repo root (`jupyter lab`), then open **one** notebook at a time and run **the single code cell** inside it.
-
-| File | What you test |
-|------|----------------|
-| `notebooks/task1/01_H1_longer_time_higher_score.ipynb` | H1 — longer time → higher score |
-| `notebooks/task1/02_H2_question_difficulty.ipynb` | H2 — some questions harder |
-| `notebooks/task1/03_H3_high_vs_low_progression.ipynb` | H3 — high vs low progression over attempts |
-| `notebooks/task1/04_H4_difficulty_time_performance.ipynb` | H4 — difficulty / time / performance (data limits noted in notebook) |
-| `notebooks/task1/05_H5_optimal_time_window.ipynb` | H5 — optimal time window vs score |
-
-Each notebook finds the project root on its own and writes PNGs to `outputs/`.
-
-**EDA for all three quiz files:** `notebooks/00_EDA_three_quizzes.ipynb` (run all cells), or `python -m src eda` (`--no-show` to save only).
-
----
-
-## Optional: run from the terminal (`src/`)
-
-The same plots can be generated without Jupyter. Figures go to `outputs/`.
-
-From the **repository root**, with your environment activated:
-
-```bash
-# Exploratory analysis (tables + figures → outputs/eda/)
-python -m src eda
-
-# Task 1 only (H1–H5)
-python -m src task1
-
-# Task 2 only (H6–H10)
-python -m src task2
-
-# Single hypothesis
-python -m src h3
-
-# Everything + printed summary table
-python -m src all
-
-# Summary table only (no data load)
-python -m src summary
-```
-
-On servers or CI, save plots without opening windows:
-
-```bash
-python -m src task1 --no-show
-```
-
-Custom output directory: `python -m src h1 --output-dir ./figures`.
-
----
-
-## Running Jupyter
-
-With the environment activated, from the **repository root**:
-
-```bash
-jupyter lab
-```
-
-Use `notebooks/task1/` for Task 1 (see table above). For Task 2 you can copy the same pattern or use `python -m src task2`.
-
----
-
-## Repository layout
-
-| Path | Role |
+| Quiz | Path |
 |------|------|
-| `data/` | Raw quiz CSVs — treat as read-only inputs |
-| `docs/description.pdf` | Full assignment specification |
-| `docs/claud.py` | Reference script / notebook-style blocks (superseded by `src/` for runs) |
-| `notebooks/00_EDA_three_quizzes.ipynb` | EDA for all three CSVs; writes to `outputs/eda/` |
-| `notebooks/task1/` | Five notebooks — Task 1, H1–H5, one runnable cell each |
-| `src/` | Data loading + plot functions + `python -m src …` CLI (H1–H10) |
-| `outputs/` | Generated PNGs (from notebooks or `python -m src`) |
-| `requirements.txt` | Python dependencies |
-| `.venv/` | Local venv (created by you; listed in `.gitignore`) |
+| Quiz 1 | `data/quiz1/quiz1_marks.csv` |
+| Quiz 2 | `data/quiz2/quiz2_marks.csv` |
+| Quiz 3 | `data/quiz3/quiz3_marks.csv` |
 
-Add Task 2 notebooks under `notebooks/task2/` when you define those hypotheses.
+If your files live elsewhere, change the path variables in each notebook’s setup cell.
+
+## How to run
+
+1. Open Jupyter (or VS Code / Cursor) using the environment where the packages above are installed.
+2. Open a notebook under `notebooks/`.
+3. **Run all cells from top to bottom.**
+
+**Suggested order** for a full refresh: `EDA.ipynb` → `task01.ipynb` → `task02.ipynb`.
 
 ---
 
-## Submission reminder (see PDF for details)
+## The three notebooks
 
-Group **PDF report** and a **zip** of source code that includes this README, per course instructions.
+### `notebooks/EDA.ipynb` — Exploratory Data Analysis
+
+- Loads the three Moodle exports, keeps finished attempts, parses grades and durations, and builds per-attempt and per-student summaries.
+- Covers data quality, cohort overlap across quizzes, re-attempt behaviour, grade and time distributions, grade vs time, first-to-last attempt change, per-question difficulty, attempt timelines, and best score vs number of attempts.
+- **Writes to:** **`outputs/eda/`** (CSV tables and PNG figures such as `eda_data_quality.csv`, `eda_grade_histograms.png`, `eda_time_boxplot_by_quiz.png`, and others referenced in the notebook).
+
+### `notebooks/task01.ipynb` — Task 1 (hypotheses H1–H5)
+
+- Tests instructor hypotheses: time vs score (H1), question difficulty (H2), improvement patterns by performance tier (H3), question marks and total time vs tier (H4), and an “optimal time window” view (H5).
+- **Writes to:** **`outputs/`** as PNG files `h1_*.png` through `h5_*.png` (H4 produces several files, e.g. `h4_difficulty_perf_heatmap.png`, `h4_grade_time_scatter_by_tier.png`).
+
+### `notebooks/task02.ipynb` — Task 2 (hypotheses H6–H10)
+
+- **H6:** Consecutive retake pairs — Δtime vs Δscore (scatter + LOWESS), then Δtime by improved vs not (boxplot). Two figures, same hypothesis.
+- **H7:** Knowledge and efficiency across attempts (mean score and mean time by attempt, plus per-student scatter).
+- **H8:** Slow vs fast first-attempt “failers” and recovery (best minus first grade).
+- **H9:** Paired improvement from attempt 1 to attempt 2 (Wilcoxon + slope chart).
+- **H10:** Cross-quiz consistency of best grades for students who appear in multiple quizzes.
+
+| ID | Output figures (under `outputs/`) |
+|----|-----------------------------------|
+| H6 | `h6_retake_delta_scatter.png`, `h6_retake_delta_box.png` |
+| H7 | `h7_knowledge_efficiency_across_attempts.png` |
+| H8 | `h8_slow_fast_failers_recovery.png` |
+| H9 | `h9_reattempt_improvement.png` |
+| H10 | `h10_cross_quiz_consistency.png` |
+
+---
+
+## Re-running from the command line
+
+From the project root (the directory that contains `data`, `notebooks`, and `outputs`), after installing `nbconvert`:
+
+```bash
+jupyter nbconvert --execute --inplace notebooks/EDA.ipynb
+jupyter nbconvert --execute --inplace notebooks/task01.ipynb
+jupyter nbconvert --execute --inplace notebooks/task02.ipynb
+```
+
+Use a generous timeout if needed, for example `--ExecutePreprocessor.timeout=900`.
