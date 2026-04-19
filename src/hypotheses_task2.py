@@ -9,8 +9,9 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
-from scipy.stats import spearmanr
+from scipy.stats import mannwhitneyu, spearmanr
 
+from src.data_io import attempt_minutes_capped
 from src.viz_style import PALETTE
 
 
@@ -297,10 +298,200 @@ def run_h10_question_score_variance_by_tier(
     print("\n── H10 — Mann–Whitney: Low tier Q_std > High tier? ──")
 
 
+def run_h11_retake_improve_time_delta(
+    q1: pd.DataFrame,
+    q2: pd.DataFrame,
+    q3: pd.DataFrame,
+    out_dir: Path,
+    show: bool = True,
+) -> None:
+    """Retakes: improved score vs change in time between consecutive attempts (by start time).
+
+    Durations come from ``time_sec`` via :func:`attempt_minutes_capped` (seconds vs ms
+    heuristic from :func:`time_sec_to_minutes`, then clip at 120 min per attempt) so
+    ``delta_time`` is in minutes in a typical quiz range.
+    """
+    from statsmodels.nonparametric.smoothers_lowess import lowess
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    green = PALETTE["success"]
+    red = PALETTE["secondary"]
+    grey = "#9CA3AF"
+
+    def _consecutive_pairs(quiz_df: pd.DataFrame) -> pd.DataFrame:
+        multi = quiz_df.groupby("student_id").filter(lambda x: len(x) > 1)
+        if multi.empty:
+            return pd.DataFrame(columns=["delta_time", "delta_score"])
+        multi = multi.dropna(subset=["started_on"])
+        rows: list[dict] = []
+        for _, grp in multi.groupby("student_id", sort=False):
+            grp = grp.sort_values("started_on")
+            for i in range(len(grp) - 1):
+                t0 = attempt_minutes_capped(float(grp.iloc[i]["time_sec"]))
+                t1 = attempt_minutes_capped(float(grp.iloc[i + 1]["time_sec"]))
+                g0 = float(grp.iloc[i]["grade"])
+                g1 = float(grp.iloc[i + 1]["grade"])
+                rows.append({"delta_time": float(t1 - t0), "delta_score": float(g1 - g0)})
+        return pd.DataFrame(rows)
+
+    prepared: list[tuple[str, pd.DataFrame | None]] = []
+    for quiz_df, label in _triplets(q1, q2, q3):
+        pairs = _consecutive_pairs(quiz_df)
+        if pairs.empty or len(pairs) < 3:
+            prepared.append((label, None))
+            continue
+        cap = pairs["delta_time"].quantile(0.95)
+        d = pairs.copy()
+        d["delta_time_plot"] = d["delta_time"].clip(upper=cap)
+        d["improved"] = np.where(d["delta_score"] > 0, "Improved", "Not improved")
+        prepared.append((label, d))
+
+    # --- Figure A: one row, three columns — scatter + LOWESS per quiz
+    fig_s, axes_s = plt.subplots(1, 3, figsize=(17, 5.5), sharey=True)
+    for ax_s, (label, d) in zip(axes_s, prepared):
+        if d is None:
+            ax_s.set_title(f"{label} — insufficient consecutive pairs", fontweight="bold")
+            continue
+
+        col = np.where(
+            d["delta_score"] > 0,
+            green,
+            np.where(d["delta_score"] < 0, red, grey),
+        )
+        ax_s.scatter(
+            d["delta_time_plot"],
+            d["delta_score"],
+            c=list(col),
+            alpha=0.45,
+            s=22,
+            edgecolors="none",
+        )
+        ax_s.axhline(0, color="grey", linestyle="--", linewidth=1.1, zorder=0)
+        ax_s.axvline(0, color="grey", linestyle="--", linewidth=1.1, zorder=0)
+
+        xl, xr = ax_s.get_xlim()
+        yb, yt = ax_s.get_ylim()
+        ax_s.set_xlim(min(xl, 0), max(xr, 0))
+        ax_s.set_ylim(min(yb, 0), max(yt, 0))
+        xl, xr = ax_s.get_xlim()
+        yb, yt = ax_s.get_ylim()
+        sm = lowess(d["delta_score"], d["delta_time_plot"], frac=0.35)
+        ax_s.plot(sm[:, 0], sm[:, 1], color="black", linewidth=2.2, label="LOWESS", zorder=5)
+        ax_s.legend(loc="best", fontsize=9)
+
+        rho, p_sp = spearmanr(d["delta_time_plot"], d["delta_score"])
+        ptxt = "< 0.001" if p_sp < 0.001 else f"= {p_sp:.4g}"
+        ax_s.set_title(f"{label}\nSpearman rho = {rho:.3f} (p {ptxt})", fontweight="bold", fontsize=11)
+
+        ax_s.text(
+            (0 + xr) / 2,
+            (0 + yt) / 2,
+            "More time, Better score",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="#374151",
+            zorder=6,
+        )
+        ax_s.text(
+            (xl + 0) / 2,
+            (0 + yt) / 2,
+            "Less time, Better score",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="#374151",
+            zorder=6,
+        )
+        ax_s.text(
+            (0 + xr) / 2,
+            (yb + 0) / 2,
+            "More time, Worse score",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="#374151",
+            zorder=6,
+        )
+        ax_s.text(
+            (xl + 0) / 2,
+            (yb + 0) / 2,
+            "Less time, Worse score",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="#374151",
+            zorder=6,
+        )
+        ax_s.set_xlabel("Delta time (min); 120 min/attempt cap; 95th pct for points")
+        ax_s.set_ylabel("Delta score (next minus previous)")
+
+    fig_s.suptitle(
+        "H11 (a) — Delta time vs delta score (scatter + LOWESS)",
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
+    )
+    plt.tight_layout()
+    fig_s.savefig(out_dir / "h11_retake_delta_scatter.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig_s)
+
+    # --- Figure B: one row, three columns — box plots per quiz
+    fig_b, axes_b = plt.subplots(1, 3, figsize=(17, 5.5), sharey=True)
+    for ax_b, (label, d) in zip(axes_b, prepared):
+        if d is None:
+            ax_b.set_title(f"{label} — insufficient data", fontweight="bold")
+            continue
+
+        imp = d.loc[d["improved"] == "Improved", "delta_time_plot"]
+        not_imp = d.loc[d["improved"] == "Not improved", "delta_time_plot"]
+        if len(imp) >= 1 and len(not_imp) >= 1:
+            _, p_mw = mannwhitneyu(imp, not_imp, alternative="two-sided")
+            mw_txt = "< 0.001" if p_mw < 0.001 else f"= {p_mw:.4g}"
+        else:
+            mw_txt = "n/a"
+
+        sns.boxplot(
+            data=d,
+            x="improved",
+            y="delta_time_plot",
+            order=["Improved", "Not improved"],
+            hue="improved",
+            hue_order=["Improved", "Not improved"],
+            palette={"Improved": green, "Not improved": red},
+            ax=ax_b,
+            width=0.45,
+            dodge=False,
+            legend=False,
+        )
+        ax_b.set_title(f"{label}\nMann-Whitney p {mw_txt}", fontweight="bold", fontsize=11)
+        ax_b.set_xlabel("")
+        ax_b.set_ylabel("Delta time (min); 95th pct cap for display")
+
+    fig_b.suptitle(
+        "H11 (b) — Delta time: improved vs not improved",
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
+    )
+    plt.tight_layout()
+    fig_b.savefig(out_dir / "h11_retake_delta_box.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig_b)
+    print(
+        "\n-- H11: Consecutive pairs; attempt duration = time_sec_to_minutes + 120 min cap; "
+        "plot delta_time capped at 95th pctile. --"
+    )
+
+
 def print_summary_table() -> None:
     summary = pd.DataFrame(
         {
-            "ID": ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10"],
+            "ID": ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11"],
             "Hypothesis": [
                 "Longer time → higher score",
                 "Some questions consistently harder",
@@ -312,6 +503,7 @@ def print_summary_table() -> None:
                 "Earlier first starters vs grade",
                 "More attempts → better best score",
                 "Low performers have higher Q-score variance",
+                "Improved retakes vs change in time (consecutive attempts)",
             ],
             "Visualization": [
                 "Scatter + LOWESS (Spearman ρ)",
@@ -324,8 +516,9 @@ def print_summary_table() -> None:
                 "Hexbin (Spearman ρ)",
                 "Bar with 95% CI",
                 "Violin (Mann–Whitney)",
+                "Scatter + LOWESS; box (Mann–Whitney) — two PNGs",
             ],
-            "Task": ["Task 1"] * 5 + ["Task 2"] * 5,
+            "Task": ["Task 1"] * 5 + ["Task 2"] * 6,
         }
     )
     print(summary.to_string(index=False))
@@ -337,4 +530,5 @@ TASK2_RUNNERS = {
     "h8": run_h8_early_starter_vs_grade,
     "h9": run_h9_attempts_vs_best_score,
     "h10": run_h10_question_score_variance_by_tier,
+    "h11": run_h11_retake_improve_time_delta,
 }

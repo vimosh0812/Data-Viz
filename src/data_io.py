@@ -42,6 +42,38 @@ def parse_time_to_seconds(text) -> float:
     return total if total > 0 else np.nan
 
 
+def time_sec_to_minutes(time_sec: pd.Series) -> pd.Series:
+    """Convert stored duration to minutes.
+
+    ``time_sec`` from :func:`parse_time_to_seconds` is normally **seconds**
+    (``minutes = time_sec / 60``).
+
+    Some exports store **milliseconds** as unitless numbers. If interpreting
+    as seconds yields an implausible duration (hundreds of minutes) while
+    interpreting as milliseconds yields a plausible quiz length, use
+    ``minutes = time_sec / 60_000``.
+    """
+    s = time_sec.astype(float)
+    min_if_seconds = s / 60.0
+    min_if_milliseconds = s / 60000.0
+    # Row-wise: e.g. 420000 ms misread as 420000 s → 7000 min vs 7 min
+    use_ms = (min_if_seconds > 720.0) & (min_if_milliseconds <= 720.0) & (min_if_seconds < 10000.0)
+    out = np.where(use_ms, min_if_milliseconds, min_if_seconds)
+    return pd.Series(out, index=time_sec.index, dtype=float)
+
+
+def attempt_minutes_capped(time_sec: float, cap: float = 120.0) -> float:
+    """Single-attempt duration in minutes for retake deltas: :func:`time_sec_to_minutes` then ``cap``.
+
+    Extreme Moodle durations (e.g. multi-day open tabs) are clipped so paired
+    deltas stay in a typical quiz range (default 120 minutes).
+    """
+    if not np.isfinite(time_sec) or time_sec <= 0:
+        return 0.0
+    m = float(time_sec_to_minutes(pd.Series([time_sec])).iloc[0])
+    return float(np.clip(m, 0.0, cap))
+
+
 def load_quiz(quiz_id: int) -> pd.DataFrame:
     """Load one quiz CSV: finished attempts only, numeric grades and per-Q marks."""
     path = QUIZ_FILES[quiz_id]
@@ -50,7 +82,7 @@ def load_quiz(quiz_id: int) -> pd.DataFrame:
     df = df[df["State"] == "Finished"].copy()
     df["grade"] = pd.to_numeric(df["Grade/10.00"], errors="coerce")
     df["time_sec"] = df["Time taken"].apply(parse_time_to_seconds)
-    df["time_min"] = df["time_sec"] / 60.0
+    df["time_min"] = time_sec_to_minutes(df["time_sec"])
 
     q_cols = [c for c in df.columns if c.startswith("Q.")]
     for c in q_cols:

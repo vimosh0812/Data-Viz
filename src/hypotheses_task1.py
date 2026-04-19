@@ -9,7 +9,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.stats import spearmanr
+from scipy.stats import mannwhitneyu, spearmanr
 
 from src.viz_style import PALETTE
 
@@ -209,7 +209,11 @@ def run_h4_difficulty_and_time_by_tier(
     out_dir: Path,
     show: bool = True,
 ) -> None:
-    """H4: Harder items vs performance; high performers faster (per-question time not in CSV)."""
+    """H4: Harder items vs performance; high performers faster (per-question time not in CSV).
+
+    Per-question response times are not exported; we use mean *total* quiz time split by
+    whether the attempt is below vs at/above the median mark on each question (proxy).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(1, 3, figsize=(17, 5))
 
@@ -248,14 +252,95 @@ def run_h4_difficulty_and_time_by_tier(
         plt.show()
     plt.close(fig)
 
+    # Proxy for linking items to duration: total quiz time by median split on each question's mark
     fig, axes = plt.subplots(1, 3, figsize=(17, 5))
+    for ax, (quiz_df, label) in zip(axes, _triplets(q1, q2, q3)):
+        q_cols = [c for c in quiz_df.columns if c.startswith("Q.")]
+        below_means = []
+        above_means = []
+        x_labels = []
+        for c in q_cols:
+            qid = f"Q{c.split()[1].rstrip('.')}"
+            x_labels.append(qid)
+            med_m = quiz_df[c].median()
+            below = quiz_df[quiz_df[c] < med_m]["time_min"]
+            above = quiz_df[quiz_df[c] >= med_m]["time_min"]
+            below_means.append(below.mean() if len(below) else np.nan)
+            above_means.append(above.mean() if len(above) else np.nan)
+        x = np.arange(len(x_labels))
+        w = 0.36
+        ax.bar(x - w / 2, below_means, width=w, label="Below median mark on Q", color=PALETTE["secondary"], edgecolor="white")
+        ax.bar(x + w / 2, above_means, width=w, label="At/above median mark on Q", color=PALETTE["success"], edgecolor="white")
+        ax.set_xticks(x)
+        ax.set_xticklabels(x_labels)
+        ax.set_title(f"{label}", fontweight="bold")
+        ax.set_xlabel("Question")
+        ax.set_ylabel("Mean total quiz time (min)")
+        ax.legend(fontsize=8, loc="upper right")
+
+    plt.suptitle(
+        "H4 (part B) — Mean total quiz time by score on each question (proxy; no per-Q timestamps)",
+        fontsize=14,
+        fontweight="bold",
+    )
+    plt.tight_layout()
+    fig.savefig(out_dir / "h4_mean_total_time_by_question_median_split.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5))
+    colors_scatter = {
+        "High (≥ median)": PALETTE["success"],
+        "Low (< median)": PALETTE["secondary"],
+    }
     for ax, (quiz_df, label) in zip(axes, _triplets(q1, q2, q3)):
         cap = quiz_df["time_min"].quantile(0.97)
         d = quiz_df[quiz_df["time_min"] <= cap].copy()
         med_grade = d["grade"].median()
         d["perf_tier"] = np.where(d["grade"] >= med_grade, "High (≥ median)", "Low (< median)")
+        for tier in ("High (≥ median)", "Low (< median)"):
+            sub = d[d["perf_tier"] == tier]
+            ax.scatter(
+                sub["time_min"],
+                sub["grade"],
+                alpha=0.28,
+                s=16,
+                color=colors_scatter[tier],
+                edgecolors="none",
+                label=tier,
+            )
+        ax.axhline(med_grade, color="grey", linestyle="--", linewidth=1, alpha=0.6)
+        ax.set_title(f"{label} — grade vs total time", fontweight="bold")
+        ax.set_xlabel("Time taken (minutes)")
+        ax.set_ylabel("Grade / 10")
+        ax.legend(fontsize=8, loc="best")
+
+    plt.suptitle(
+        "H4 (part C) — Grade vs time by overall performance tier (joint view)",
+        fontsize=14,
+        fontweight="bold",
+    )
+    plt.tight_layout()
+    fig.savefig(out_dir / "h4_grade_time_scatter_by_tier.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5))
+    for ax, (quiz_df, label) in zip(axes, _triplets(q1, q2, q3)):
+        d = quiz_df.copy()
+        med_grade = d["grade"].median()
+        d["perf_tier"] = np.where(d["grade"] >= med_grade, "High (≥ median)", "Low (< median)")
+        high_t = d[d["perf_tier"] == "High (≥ median)"]["time_min"].dropna()
+        low_t = d[d["perf_tier"] == "Low (< median)"]["time_min"].dropna()
+        _, p_mw = mannwhitneyu(high_t, low_t, alternative="two-sided")
+
+        cap = quiz_df["time_min"].quantile(0.97)
+        d_plot = d[d["time_min"] <= cap].copy()
+        ymax = d_plot["time_min"].quantile(0.95)
         sns.violinplot(
-            data=d,
+            data=d_plot,
             x="perf_tier",
             y="time_min",
             hue="perf_tier",
@@ -269,17 +354,38 @@ def run_h4_difficulty_and_time_by_tier(
             legend=False,
             dodge=False,
         )
-        ax.set_title(f"{label} — total time by tier", fontweight="bold")
+        ax.set_ylim(0, ymax * 1.02)
+        ptxt = "< 0.001" if p_mw < 0.001 else f"= {p_mw:.4f}"
+        ax.set_title(f"{label}\nMann-Whitney U, p {ptxt}", fontweight="bold")
         ax.set_xlabel("Performance tier")
         ax.set_ylabel("Time (minutes)")
 
-    plt.suptitle("H4 (part B) — Total quiz time: high vs low performers", fontsize=14, fontweight="bold")
+    plt.suptitle(
+        "H4 (part D) — Total quiz time: high vs low performers (y-axis capped at 95th %ile for readability)",
+        fontsize=14,
+        fontweight="bold",
+    )
     plt.tight_layout()
     fig.savefig(out_dir / "h4_time_vs_perf_violin.png", bbox_inches="tight")
     if show:
         plt.show()
     plt.close(fig)
-    print("\n── H4 — No per-question timestamps; heatmap + total-time violin are indirect evidence. ──")
+
+    print("\n-- H4: Mann-Whitney U (total time: high vs low grade, median split) --")
+    for quiz_df, label in _triplets(q1, q2, q3):
+        d = quiz_df.copy()
+        med_grade = d["grade"].median()
+        high_t = d[d["grade"] >= med_grade]["time_min"].dropna()
+        low_t = d[d["grade"] < med_grade]["time_min"].dropna()
+        u_stat, p_mw = mannwhitneyu(high_t, low_t, alternative="two-sided")
+        print(
+            f"  {label}: U = {u_stat:.0f}, p = {p_mw:.4g} "
+            f"(median time high={high_t.median():.2f} min, low={low_t.median():.2f} min)"
+        )
+    print(
+        "-- H4: Per-question timestamps are not in the export; "
+        "heatmap + median-split bars + joint scatter are indirect evidence. --"
+    )
 
 
 def run_h5_optimal_time_window(
@@ -289,7 +395,13 @@ def run_h5_optimal_time_window(
     out_dir: Path,
     show: bool = True,
 ) -> None:
-    """H5: Optimal time band; very fast / very slow → lower scores."""
+    """H5: Optimal time band; very fast / very slow → lower scores.
+
+    Complements H1: if there were an inverted-U “sweet spot”, LOWESS would bend
+    downward at both ends; quintile box plots summarise the same axis.
+    """
+    from statsmodels.nonparametric.smoothers_lowess import lowess
+
     out_dir.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(1, 3, figsize=(17, 5))
 
@@ -330,7 +442,66 @@ def run_h5_optimal_time_window(
     if show:
         plt.show()
     plt.close(fig)
-    print("\n── H5 — Look for inverted-U / middle bins highest median grade. ──")
+
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5), sharey=True)
+    colors = [PALETTE["primary"], PALETTE["secondary"], PALETTE["accent"]]
+    for ax, (quiz_df, label), color in zip(axes, _triplets(q1, q2, q3), colors):
+        cap = quiz_df["time_min"].quantile(0.97)
+        d = quiz_df[quiz_df["time_min"] <= cap].copy()
+        ax.scatter(d["time_min"], d["grade"], alpha=0.25, s=18, color=color, edgecolors="none")
+        sm = lowess(d["grade"], d["time_min"], frac=0.3)
+        ax.plot(sm[:, 0], sm[:, 1], color="black", linewidth=2, label="LOWESS")
+        try:
+            d["time_bin"] = pd.qcut(d["time_min"], q=5, duplicates="drop")
+            codes = d["time_bin"].cat.codes
+            valid = codes >= 0
+            if valid.sum() >= 2 and codes[valid].nunique() >= 2:
+                rho, p_sp = spearmanr(codes[valid], d.loc[valid, "grade"])
+                ptxt = "< 0.001" if p_sp < 0.001 else f"= {p_sp:.3f}"
+                ax.set_title(
+                    f"{label}\nSpearman (time quintile vs grade): ρ = {rho:.3f} (p {ptxt})",
+                    fontweight="bold",
+                )
+            else:
+                ax.set_title(f"{label}", fontweight="bold")
+        except (ValueError, TypeError):
+            ax.set_title(f"{label}", fontweight="bold")
+        ax.set_xlabel("Time taken (minutes)")
+        ax.set_ylabel("Grade / 10")
+        ax.legend(fontsize=9)
+
+    plt.suptitle(
+        "H5 — Grade vs time with LOWESS (inverted-U would show a clear mid-axis peak)",
+        fontsize=14,
+        fontweight="bold",
+    )
+    plt.tight_layout()
+    fig.savefig(out_dir / "h5_grade_vs_time_lowess.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+    print("\n-- H5: Median grade per time quintile (fast -> slow); compare shape to H1. --")
+    for quiz_df, label in _triplets(q1, q2, q3):
+        cap = quiz_df["time_min"].quantile(0.97)
+        d = quiz_df[quiz_df["time_min"] <= cap].copy()
+        try:
+            d["time_bin"] = pd.qcut(d["time_min"], q=5, duplicates="drop")
+        except ValueError:
+            print(f"  {label}: insufficient distinct times for quintiles.")
+            continue
+        med_by_bin = d.groupby("time_bin", observed=True)["grade"].median()
+        parts = [f"{idx.left:.1f}-{idx.right:.1f} min -> med {v:.1f}" for idx, v in med_by_bin.items()]
+        print(f"  {label}: " + " | ".join(parts))
+        codes = d["time_bin"].cat.codes
+        valid = codes >= 0
+        if valid.sum() >= 2 and codes[valid].nunique() >= 2:
+            rho, p_sp = spearmanr(codes[valid], d.loc[valid, "grade"])
+            print(f"    Spearman(ordinal time quintile, grade): rho = {rho:.3f}, p = {p_sp:.4g}")
+    print(
+        "-- H5: Consistent with H1: no smooth inverted-U is required to reject an "
+        'optimal "middle time" band if LOWESS is monotone or flat. --'
+    )
 
 
 TASK1_RUNNERS = {
