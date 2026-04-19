@@ -15,11 +15,11 @@ from src.hypotheses_task1 import TASK1_RUNNERS
 from src.hypotheses_task2 import TASK2_RUNNERS, print_summary_table
 from src.viz_style import configure_matplotlib
 
-ALL_KEYS = [f"h{i}" for i in range(1, 12)]
+ALL_KEYS = [f"h{i}" for i in range(1, 14)]
 
 
 def _parse_args():
-    p = argparse.ArgumentParser(description="Run CS3751 quiz hypothesis plots (H1–H11).")
+    p = argparse.ArgumentParser(description="Run CS3751 quiz hypothesis plots (H1–H13).")
     p.add_argument(
         "hypothesis",
         nargs="?",
@@ -100,7 +100,7 @@ def main() -> None:
         return
 
     if key == "task2":
-        for k in ("h6", "h7", "h8", "h9", "h10", "h11"):
+        for k in ("h6", "h7", "h8", "h9", "h10", "h11", "h12", "h13"):
             run_one(k)
         return
 

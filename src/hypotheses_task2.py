@@ -488,10 +488,345 @@ def run_h11_retake_improve_time_delta(
     )
 
 
+def run_h12_knowledge_efficiency_across_attempts(
+    q1: pd.DataFrame,
+    q2: pd.DataFrame,
+    q3: pd.DataFrame,
+    out_dir: Path,
+    show: bool = True,
+) -> None:
+    """H12: Multi-attempt students — score and time trends; mean time vs mean score per student."""
+    from statsmodels.nonparametric.smoothers_lowess import lowess
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    cap_min = 120.0
+    min_n = 30
+
+    fig = plt.figure(figsize=(20, 14), layout="constrained")
+    fig.suptitle(
+        "H12 — Knowledge and efficiency across multiple attempts",
+        fontsize=16,
+        fontweight="bold",
+        y=0.995,
+    )
+    subfigs = fig.subfigures(3, 1, hspace=0.2)
+
+    for subfig, (quiz_df, quiz_label) in zip(subfigs, _triplets(q1, q2, q3)):
+        subfig.suptitle(quiz_label, fontsize=14, fontweight="bold")
+        ax1, ax2, ax3 = subfig.subplots(1, 3, gridspec_kw={"wspace": 0.32})
+
+        multi = quiz_df.groupby("student_id").filter(lambda x: len(x) > 1).copy()
+        if multi.empty:
+            for ax in (ax1, ax2, ax3):
+                ax.set_title("No multi-attempt students")
+            continue
+
+        multi = multi.sort_values(["student_id", "started_on"])
+        multi["att"] = multi.groupby("student_id").cumcount() + 1
+        multi["time_capped"] = multi["time_sec"].map(
+            lambda s: attempt_minutes_capped(float(s), cap_min)
+        )
+
+        # --- Column 1: mean score by attempt number
+        sc = multi.groupby("att")["grade"].agg(["mean", "std", "count"])
+        sc = sc[sc["count"] >= min_n]
+        sc["std"] = sc["std"].fillna(0.0)
+        if len(sc) > 0:
+            xs = sc.index.to_numpy(dtype=float)
+            ax1.plot(xs, sc["mean"], color="#2563EB", linewidth=2.4, marker="o", markersize=6)
+            ax1.fill_between(
+                xs,
+                sc["mean"] - sc["std"],
+                sc["mean"] + sc["std"],
+                alpha=0.22,
+                color="#2563EB",
+            )
+            ax1.set_xticks(xs)
+            for xi, ni in zip(xs, sc["count"]):
+                ax1.text(
+                    xi,
+                    -0.15,
+                    f"n={int(ni)}",
+                    transform=ax1.get_xaxis_transform(),
+                    ha="center",
+                    fontsize=9,
+                )
+        else:
+            ax1.text(
+                0.5,
+                0.5,
+                f"No attempt with n >= {min_n}",
+                transform=ax1.transAxes,
+                ha="center",
+                va="center",
+                fontsize=11,
+            )
+        ax1.set_title(f"Mean score by attempt number — {quiz_label}", fontweight="bold", fontsize=11)
+        ax1.set_xlabel("Attempt number")
+        ax1.set_ylabel("Mean score (grade / 10)")
+        ax1.grid(True, alpha=0.35)
+
+        # --- Column 2: mean time (capped) by attempt number
+        tm = multi.groupby("att")["time_capped"].agg(["mean", "std", "count"])
+        tm = tm[tm["count"] >= min_n]
+        tm["std"] = tm["std"].fillna(0.0)
+        if len(tm) > 0:
+            xt = tm.index.to_numpy(dtype=float)
+            ax2.plot(xt, tm["mean"], color="#EA580C", linewidth=2.4, marker="o", markersize=6)
+            ax2.fill_between(
+                xt,
+                tm["mean"] - tm["std"],
+                tm["mean"] + tm["std"],
+                alpha=0.22,
+                color="#EA580C",
+            )
+            ax2.set_xticks(xt)
+            for xi, ni in zip(xt, tm["count"]):
+                ax2.text(
+                    xi,
+                    -0.15,
+                    f"n={int(ni)}",
+                    transform=ax2.get_xaxis_transform(),
+                    ha="center",
+                    fontsize=9,
+                )
+        else:
+            ax2.text(
+                0.5,
+                0.5,
+                f"No attempt with n >= {min_n}",
+                transform=ax2.transAxes,
+                ha="center",
+                va="center",
+                fontsize=11,
+            )
+        ax2.set_title(f"Mean time taken by attempt number — {quiz_label}", fontweight="bold", fontsize=11)
+        ax2.set_xlabel("Attempt number")
+        ax2.set_ylabel("Mean time (minutes, capped at 120 per attempt)")
+        ax2.grid(True, alpha=0.35)
+
+        # --- Column 3: per-student means, color by attempt count
+        stu = (
+            multi.groupby("student_id")
+            .agg(mean_time=("time_capped", "mean"), mean_grade=("grade", "mean"), n_att=("att", "count"))
+            .dropna()
+        )
+        if len(stu) >= 3:
+            nmin, nmax = int(stu["n_att"].min()), int(stu["n_att"].max())
+            scat = ax3.scatter(
+                stu["mean_time"],
+                stu["mean_grade"],
+                c=stu["n_att"],
+                cmap="Blues",
+                alpha=0.75,
+                s=36,
+                edgecolors="white",
+                linewidths=0.4,
+                vmin=nmin,
+                vmax=nmax,
+            )
+            subfig.colorbar(scat, ax=ax3, label="Number of attempts", shrink=0.75)
+            sm = lowess(stu["mean_grade"], stu["mean_time"], frac=0.45)
+            ax3.plot(sm[:, 0], sm[:, 1], color="black", linewidth=2.0, label="LOWESS")
+            ax3.legend(loc="best", fontsize=9)
+            rho, p_sp = spearmanr(stu["mean_time"], stu["mean_grade"])
+            ptxt = "< 0.001" if p_sp < 0.001 else f"= {p_sp:.4g}"
+            ax3.set_title(
+                f"Mean time vs mean score per student — {quiz_label}\nSpearman rho = {rho:.3f} (p {ptxt})",
+                fontweight="bold",
+                fontsize=11,
+            )
+        else:
+            ax3.set_title(f"Mean time vs mean score per student — {quiz_label}\n(too few students)", fontsize=11)
+        ax3.set_xlabel("Mean time across attempts (minutes)")
+        ax3.set_ylabel("Mean score across attempts (grade / 10)")
+        ax3.grid(True, alpha=0.35)
+
+    fig.savefig(out_dir / "h12_knowledge_efficiency_across_attempts.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+    print(
+        f"\n-- H12: Multi-attempt students only; time capped at {cap_min:.0f} min per attempt; "
+        f"line plots require n>={min_n} per attempt number. --"
+    )
+
+
+def run_h13_slow_fast_failers_recovery(
+    q1: pd.DataFrame,
+    q2: pd.DataFrame,
+    q3: pd.DataFrame,
+    out_dir: Path,
+    show: bool = True,
+) -> None:
+    """H13: Slow vs fast first-attempt failers — recovery score (best minus first grade)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    blue = "#2563EB"
+    red = "#DC2626"
+    order = ["Slow Failers", "Fast Failers"]
+
+    fig = plt.figure(figsize=(14, 12), layout="constrained")
+    fig.suptitle(
+        "H13 — Slow vs Fast Failers: recovery score comparison",
+        fontsize=15,
+        fontweight="bold",
+        y=0.995,
+    )
+    subfigs = fig.subfigures(3, 1, hspace=0.22)
+
+    for subfig, (quiz_df, quiz_label) in zip(subfigs, _triplets(q1, q2, q3)):
+        subfig.suptitle(quiz_label, fontsize=13, fontweight="bold")
+        ax_v, ax_b = subfig.subplots(1, 2, gridspec_kw={"wspace": 0.3})
+
+        df = quiz_df.sort_values(["student_id", "started_on"])
+        first = df.groupby("student_id", as_index=False).first()
+        first["time_c"] = first["time_sec"].map(lambda s: attempt_minutes_capped(float(s), 120.0))
+
+        med_t = float(first["time_c"].median())
+        med_g = float(first["grade"].median())
+
+        best_by_stu = df.groupby("student_id")["grade"].max()
+        first_ix = first.set_index("student_id")
+
+        n_per_stu = df.groupby("student_id").size()
+        multi_ids = set(n_per_stu[n_per_stu >= 2].index)
+
+        rows = []
+        for sid in multi_ids:
+            g0 = float(first_ix.loc[sid, "grade"])
+            if g0 >= med_g:
+                continue
+            tc = float(first_ix.loc[sid, "time_c"])
+            if tc > med_t:
+                grp = "Slow Failers"
+            elif tc < med_t:
+                grp = "Fast Failers"
+            else:
+                continue
+            rec = float(best_by_stu.loc[sid]) - g0
+            rows.append({"group": grp, "recovery": rec})
+
+        plot_df = pd.DataFrame(rows)
+        n_slow = int((plot_df["group"] == "Slow Failers").sum()) if len(plot_df) else 0
+        n_fast = int((plot_df["group"] == "Fast Failers").sum()) if len(plot_df) else 0
+
+        if len(plot_df) == 0 or (n_slow == 0 and n_fast == 0):
+            for ax in (ax_v, ax_b):
+                ax.text(0.5, 0.5, "No students in groups", transform=ax.transAxes, ha="center", va="center")
+            continue
+
+        slow_s = plot_df.loc[plot_df["group"] == "Slow Failers", "recovery"]
+        fast_s = plot_df.loc[plot_df["group"] == "Fast Failers", "recovery"]
+        if len(slow_s) >= 1 and len(fast_s) >= 1:
+            _, p_mw = mannwhitneyu(slow_s, fast_s, alternative="two-sided")
+            ptxt = "< 0.001" if p_mw < 0.001 else f"= {p_mw:.4g}"
+        else:
+            ptxt = "n/a (one group empty)"
+
+        palette = {"Slow Failers": blue, "Fast Failers": red}
+        present = [g for g in order if (plot_df["group"] == g).any()]
+        xlabels = [
+            f"Slow Failers\nn={n_slow}" if g == "Slow Failers" else f"Fast Failers\nn={n_fast}" for g in present
+        ]
+
+        pal_map = {g: palette[g] for g in present}
+        sns.violinplot(
+            data=plot_df,
+            x="group",
+            y="recovery",
+            order=present,
+            hue="group",
+            hue_order=present,
+            palette=pal_map,
+            ax=ax_v,
+            cut=0,
+            inner=None,
+            width=0.7,
+            dodge=False,
+            legend=False,
+        )
+        sns.stripplot(
+            data=plot_df,
+            x="group",
+            y="recovery",
+            order=present,
+            hue="group",
+            hue_order=present,
+            palette=pal_map,
+            ax=ax_v,
+            alpha=0.35,
+            size=3.5,
+            jitter=0.22,
+            dodge=False,
+            legend=False,
+        )
+        ax_v.axhline(0, color="grey", linestyle="--", linewidth=1.1, zorder=0)
+        ax_v.set_xticks(range(len(present)))
+        ax_v.set_xticklabels(xlabels)
+        ax_v.set_title(
+            f"Recovery score by first-attempt group — {quiz_label}\nMann-Whitney p {ptxt}",
+            fontweight="bold",
+            fontsize=11,
+        )
+        ax_v.set_xlabel("")
+        ax_v.set_ylabel("Recovery score (best − first attempt)")
+
+        sns.boxplot(
+            data=plot_df,
+            x="group",
+            y="recovery",
+            order=present,
+            hue="group",
+            hue_order=present,
+            palette=pal_map,
+            ax=ax_b,
+            width=0.5,
+            dodge=False,
+            legend=False,
+            medianprops=dict(color="black", linewidth=2),
+            flierprops=dict(markerfacecolor="grey", markersize=4, alpha=0.7),
+        )
+        ax_b.axhline(0, color="grey", linestyle="--", linewidth=1.1, zorder=0)
+        ax_b.set_xticks(range(len(present)))
+        ax_b.set_xticklabels(xlabels)
+        ylo, yhi = ax_b.get_ylim()
+        yspan = yhi - ylo if yhi > ylo else 1.0
+        for i, grp in enumerate(present):
+            sub = plot_df.loc[plot_df["group"] == grp, "recovery"]
+            if len(sub) == 0:
+                continue
+            med = float(sub.median())
+            ax_b.text(
+                i,
+                med + 0.03 * yspan,
+                f"{med:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
+                color="black",
+            )
+        ax_b.set_title(
+            f"Recovery score distribution — {quiz_label}\nMann-Whitney p {ptxt}",
+            fontweight="bold",
+            fontsize=11,
+        )
+        ax_b.set_xlabel("")
+        ax_b.set_ylabel("Recovery score (best − first attempt)")
+
+    fig.savefig(out_dir / "h13_slow_fast_failers_recovery.png", bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+    print("\n-- H13: First-attempt medians (all students); groups among multi-attempt failers; time capped at 120 min. --")
+
+
 def print_summary_table() -> None:
     summary = pd.DataFrame(
         {
-            "ID": ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11"],
+            "ID": ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12", "H13"],
             "Hypothesis": [
                 "Longer time → higher score",
                 "Some questions consistently harder",
@@ -504,6 +839,8 @@ def print_summary_table() -> None:
                 "More attempts → better best score",
                 "Low performers have higher Q-score variance",
                 "Improved retakes vs change in time (consecutive attempts)",
+                "Knowledge and efficiency improve across attempts",
+                "Slow failers recover more than fast failers",
             ],
             "Visualization": [
                 "Scatter + LOWESS (Spearman ρ)",
@@ -517,8 +854,10 @@ def print_summary_table() -> None:
                 "Bar with 95% CI",
                 "Violin (Mann–Whitney)",
                 "Scatter + LOWESS; box (Mann–Whitney) — two PNGs",
+                "Lines + band + scatter (Spearman)",
+                "Violin + box (Mann–Whitney)",
             ],
-            "Task": ["Task 1"] * 5 + ["Task 2"] * 6,
+            "Task": ["Task 1"] * 5 + ["Task 2"] * 8,
         }
     )
     print(summary.to_string(index=False))
@@ -531,4 +870,6 @@ TASK2_RUNNERS = {
     "h9": run_h9_attempts_vs_best_score,
     "h10": run_h10_question_score_variance_by_tier,
     "h11": run_h11_retake_improve_time_delta,
+    "h12": run_h12_knowledge_efficiency_across_attempts,
+    "h13": run_h13_slow_fast_failers_recovery,
 }
